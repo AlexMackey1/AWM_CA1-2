@@ -57,3 +57,29 @@ class FlightRouteSerializer(serializers.ModelSerializer):
             "destination": obj.destination.iata_code if obj.destination else None,
             "distance_km": obj.distance_km,
         }
+
+class AirportCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer used for creating or updating Airport records (supports lat/lon input).
+    """
+
+    lat = serializers.FloatField(write_only=True)
+    lon = serializers.FloatField(write_only=True)
+
+    class Meta:
+        model = Airport
+        fields = (
+            "name",
+            "iata_code",
+            "city",
+            "country",
+            "altitude_ft",
+            "lat",
+            "lon",
+        )
+
+    def create(self, validated_data):
+        lat = validated_data.pop("lat")
+        lon = validated_data.pop("lon")
+        validated_data["geom"] = Point(lon, lat, srid=4326)
+        return Airport.objects.create(**validated_data)

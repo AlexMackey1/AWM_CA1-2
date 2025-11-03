@@ -1,72 +1,125 @@
 from django.shortcuts import render
-from rest_framework import viewsets
-from rest_framework.response import Response
+from django.contrib.gis.geos import Point
+from django.contrib.gis.measure import Distance
+from django.contrib.gis.db.models.functions import Distance as GDistance
+from django.db.models import Count
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.response import Response
+
 from .models import Airport, FlightRoute
-from .serializers import AirportSerializer, FlightRouteSerializer
+from .serializers import AirportSerializer, FlightRouteSerializer, AirportCreateSerializer
 
 
-# Frontend map page
+#  FRONTEND MAP VIEW
 def index(request):
+    """Serves the Leaflet front-end map page."""
     return render(request, "maps/index.html")
 
+#  AIRPORT VIEWSET
+class AirportViewSet(viewsets.ModelViewSet):
+    """
+    Handles CRUD operations and spatial queries for Airport data.
+    """
 
-# Airports API
-class AirportViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    Returns airports as a valid GeoJSON FeatureCollection.
-    Adds a /api/airports/routes/?origin=<IATA> helper for convenience.
-    """
     queryset = Airport.objects.all()
     serializer_class = AirportSerializer
 
-    # Base list: all airports as FeatureCollection
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-        geojson = {
-            "type": "FeatureCollection",
-            "features": serializer.data,
-        }
-        return Response(geojson)
-
-    # Extra route: filter routes by origin IATA code
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return AirportCreateSerializer
+        return AirportSerializer
+    
+    # ORIGINAL FUNCTIONALITY: ROUTES
     @action(detail=False, methods=["get"])
     def routes(self, request):
+        """
+        Return all routes originating from a given airport.
+        Example: /api/airports/routes/?origin=DUB
+        """
         origin_code = request.query_params.get("origin")
         if not origin_code:
-            return Response({"error": "origin parameter required"}, status=400)
+            return Response(
+                {"error": "Please provide ?origin=<IATA>"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        routes = FlightRoute.objects.filter(origin__iata_code__iexact=origin_code)
-        serializer = FlightRouteSerializer(routes, many=True)
-        geojson = {
-            "type": "FeatureCollection",
-            "features": serializer.data,
-        }
-        return Response(geojson)
+        origin_airport = Airport.objects.filter(iata_code__iexact=origin_code).first()
+        if not origin_airport:
+            return Response(
+                {"error": f"No airport found with IATA '{origin_code}'"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
+        routes = FlightRoute.objects.filter(origin=origin_airport)[:1000]
+        data = FlightRouteSerializer(routes, many=True).data
+        return Response({"type": "FeatureCollection", "features": data})
 
-# Flight Routes API
+    @action(detail=False, methods=["get"])
+    def nearby(self, request):
+        """
+        Return airports within a radius (km) of a given lat/lon.
+        Example: /api/airports/nearby/?lat=53.3&lon=-6.2&radius=100
+        """
+        try:
+            lat = float(request.query_params["lat"])
+            lon = float(request.query_params["lon"])
+            radius = float(request.query_params.get("radius", 100))
+        except (KeyError, ValueError):
+            return Response(
+                {"error": "Use ?lat=<value>&lon=<value>&radius=<km>"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pt = Point(lon, lat, srid=4326)
+        qs = (
+            Airport.objects.filter(geom__distance_lte=(pt, Distance(km=radius)))
+            .annotate(distance=GDistance("geom", pt))
+            .order_by("distance")[:300]
+        )
+        data = AirportSerializer(qs, many=True).data
+        return Response({"type": "FeatureCollection", "features": data})
+
+    @action(detail=False, methods=["get"])
+    def nearest(self, request):
+        """
+        Return the single nearest airport to a given lat/lon.
+        Example: /api/airports/nearest/?lat=53.3&lon=-6.2
+        """
+        try:
+            lat = float(request.query_params["lat"])
+            lon = float(request.query_params["lon"])
+        except (KeyError, ValueError):
+            return Response(
+                {"error": "Use ?lat=<value>&lon=<value>"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pt = Point(lon, lat, srid=4326)
+        qs = Airport.objects.annotate(distance=GDistance("geom", pt)).order_by("distance")[:1]
+        data = AirportSerializer(qs, many=True).data
+        return Response({"type": "FeatureCollection", "features": data})
+
+    @action(detail=False, methods=["get"])
+    def hubs(self, request):
+        """
+        Return top countries ranked by number of airports.
+        Example: /api/airports/hubs/?top=10
+        """
+        top = int(request.query_params.get("top", 10))
+        rows = (
+            Airport.objects.values("country")
+            .annotate(count=Count("id"))
+            .order_by("-count")[:top]
+        )
+        return Response(list(rows))
+
+#  FLIGHT ROUTE VIEWSET
 class FlightRouteViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Returns flight routes as a valid GeoJSON FeatureCollection.
-    Optional filter: ?origin=<IATA_CODE>
+    Read-only access to FlightRoute data with spatial query support.
     """
+
     queryset = FlightRoute.objects.all()
     serializer_class = FlightRouteSerializer
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        origin = self.request.query_params.get("origin")
-        if origin:
-            queryset = queryset.filter(origin__iata_code__iexact=origin)
-        return queryset
-
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-        geojson = {
-            "type": "FeatureCollection",
-            "features": serializer.data,
-        }
-        return Response(geojson)

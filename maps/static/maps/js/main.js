@@ -1,4 +1,3 @@
-// ==========================================
 // Flight Connections Map + Info Panel
 
 const map = L.map('map').setView([53.35, -6.26], 5);
@@ -126,4 +125,131 @@ document.getElementById("clearBtn").onclick = () => {
   routePanel.classList.add('hidden');
   airportLayer.eachLayer(l => l.setStyle(defaultStyle));
   infoBox.innerHTML = "<strong>Click an airport</strong> to view its connections.";
+};
+// ==============================
+// Extra Spatial Query Visuals (Click-to-Select with Radius)
+// ==============================
+
+let nearbyLayer = L.geoJSON(null, {
+  pointToLayer: (f, latlng) =>
+    L.circleMarker(latlng, { radius: 5, color: "purple", fillOpacity: 0.8 })
+      .bindPopup(`<b>${f.properties.name}</b><br>${f.properties.city}, ${f.properties.country}`)
+}).addTo(map);
+
+let clickMarker = null;   // user click point
+let searchCircle = null;  // visible radius circle
+
+// --- Helper to clear only results, not the marker ---
+function clearNearbyResults() {
+  nearbyLayer.clearLayers();
+  if (searchCircle) {
+    map.removeLayer(searchCircle);
+    searchCircle = null;
+  }
+}
+
+// --- Reset everything (for Clear button) ---
+function clearExtraLayers() {
+  clearNearbyResults();
+  if (clickMarker) {
+    map.removeLayer(clickMarker);
+    clickMarker = null;
+  }
+}
+
+// --- Select location on map ---
+map.on("click", function (e) {
+  const { lat, lng } = e.latlng;
+
+  // Remove old marker but NOT the results yet
+  if (clickMarker) map.removeLayer(clickMarker);
+  if (searchCircle) map.removeLayer(searchCircle);
+
+  clickMarker = L.marker([lat, lng], { draggable: true })
+    .addTo(map)
+    .bindPopup(`<b>Selected point</b><br>${lat.toFixed(3)}, ${lng.toFixed(3)}<br>(drag to adjust)`)
+    .openPopup();
+
+  infoBox.innerHTML = `Selected point: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+});
+
+// --- Nearby Airports ---
+document.getElementById("btnNearby").onclick = async () => {
+  if (!clickMarker) {
+    alert("Click on the map first to select a location.");
+    return;
+  }
+
+  const radius = parseFloat(prompt("Enter search radius in km:", "100"));
+  if (isNaN(radius) || radius <= 0) {
+    alert("Invalid radius value.");
+    return;
+  }
+
+  clearNearbyResults(); // clear only old search results
+  const { lat, lng } = clickMarker.getLatLng();
+
+  // Draw circle (radius in meters)
+  searchCircle = L.circle([lat, lng], {
+    radius: radius * 1000,
+    color: "purple",
+    fillColor: "purple",
+    fillOpacity: 0.1,
+  }).addTo(map);
+
+  // Fetch nearby airports
+  const res = await fetch(`/api/airports/nearby/?lat=${lat}&lon=${lng}&radius=${radius}`);
+  const data = await res.json();
+
+  if (data.features.length === 0) {
+    infoBox.innerHTML = `No airports found within ${radius} km.`;
+    return;
+  }
+
+  nearbyLayer.addData(data.features);
+  map.fitBounds(searchCircle.getBounds());
+
+  infoBox.innerHTML = `<b>${data.features.length}</b> airport(s) within ${radius} km.`;
+};
+
+// --- Nearest Airport ---
+document.getElementById("btnNearest").onclick = async () => {
+  if (!clickMarker) {
+    alert("Click on the map first to select a location.");
+    return;
+  }
+
+  clearNearbyResults();
+  const { lat, lng } = clickMarker.getLatLng();
+
+  const res = await fetch(`/api/airports/nearest/?lat=${lat}&lon=${lng}`);
+  const data = await res.json();
+
+  if (data.features.length === 0) {
+    infoBox.innerHTML = "No nearby airports found.";
+    return;
+  }
+
+  nearbyLayer.addData(data.features);
+
+  const airport = data.features[0].properties;
+  infoBox.innerHTML = `Nearest airport: <b>${airport.name}</b> (${airport.iata_code})`;
+};
+
+// --- Top Hubs ---
+document.getElementById("btnHubs").onclick = async () => {
+  const res = await fetch("/api/airports/hubs/?top=10");
+  const data = await res.json();
+  let html = "<b>Top 10 Hubs</b><ul>";
+  data.forEach(d => (html += `<li>${d.country}: ${d.count}</li>`));
+  html += "</ul>";
+  L.popup().setLatLng(map.getCenter()).setContent(html).openOn(map);
+};
+
+// --- Integrate with Clear Routes button ---
+const clearBtn = document.getElementById("clearBtn");
+const oldClear = clearBtn.onclick;
+clearBtn.onclick = () => {
+  if (typeof oldClear === "function") oldClear();
+  clearExtraLayers();
 };

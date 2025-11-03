@@ -77,6 +77,25 @@ header p {
     color: #333;
 }
 
+#extraControls {
+  margin-top: 10px;
+}
+#extraControls button {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  background-color: #0074D9;
+  color: white;
+  border: none;
+  padding: 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+#extraControls button:hover {
+  background-color: #005fa3;
+}
+
+
 /* === Route Info Panel === */
 #routePanel {
   position: absolute;
