@@ -25,6 +25,12 @@ Users can click on airports to see connections, or click anywhere on the map to 
 - View top hub countries by airport count.
 - Clear and reset map.
 
+### Main Map View
+![Main Map View](Screenshots/index.png)
+
+### Route Visualization
+![Route Visualization](Screenshots/Routes.png)
+
 ---
 
 ## Spatial Queries Implemented
