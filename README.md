@@ -54,6 +54,20 @@ Then visit: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 
 ---
 
+## 🌐 API Overview
+
+The application exposes a RESTful GeoJSON API built with Django REST Framework and GeoDjango.
+
+| Endpoint | Method | Description |
+|-----------|---------|-------------|
+| `/api/airports/` | GET | List all airports (GeoJSON FeatureCollection) |
+| `/api/airports/routes/?origin=DUB` | GET | Routes originating from DUB |
+| `/api/airports/nearby/?lat=53.35&lon=-6.26&radius=100` | GET | All airports within 100 km of a coordinate |
+| `/api/airports/nearest/?lat=53.35&lon=-6.26` | GET | Single nearest airport |
+| `/api/airports/hubs/?top=10` | GET | Top countries with the most airports |
+| `/api/routes/` | GET | List all available flight routes |
+
+
 ## Usage
 - **Click airport** → Show its routes.  
 - **Click map** → Set location for proximity queries.  
