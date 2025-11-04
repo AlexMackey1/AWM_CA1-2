@@ -6,6 +6,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
+// Global variables
 let routeLayer = null;
 let airportLayer = null;
 let selectedAirport = null;
@@ -126,10 +127,8 @@ document.getElementById("clearBtn").onclick = () => {
   airportLayer.eachLayer(l => l.setStyle(defaultStyle));
   infoBox.innerHTML = "<strong>Click an airport</strong> to view its connections.";
 };
-// ==============================
-// Extra Spatial Query Visuals (Click-to-Select with Radius)
-// ==============================
 
+// --- Nearby Airports Functionality ---
 let nearbyLayer = L.geoJSON(null, {
   pointToLayer: (f, latlng) =>
     L.circleMarker(latlng, { radius: 5, color: "purple", fillOpacity: 0.8 })
@@ -165,6 +164,7 @@ map.on("click", function (e) {
   if (clickMarker) map.removeLayer(clickMarker);
   if (searchCircle) map.removeLayer(searchCircle);
 
+  // Add new marker
   clickMarker = L.marker([lat, lng], { draggable: true })
     .addTo(map)
     .bindPopup(`<b>Selected point</b><br>${lat.toFixed(3)}, ${lng.toFixed(3)}<br>(drag to adjust)`)
@@ -180,6 +180,7 @@ document.getElementById("btnNearby").onclick = async () => {
     return;
   }
 
+  // Get radius from user
   const radius = parseFloat(prompt("Enter search radius in km:", "100"));
   if (isNaN(radius) || radius <= 0) {
     alert("Invalid radius value.");
@@ -201,6 +202,7 @@ document.getElementById("btnNearby").onclick = async () => {
   const res = await fetch(`/api/airports/nearby/?lat=${lat}&lon=${lng}&radius=${radius}`);
   const data = await res.json();
 
+  // Handle no results
   if (data.features.length === 0) {
     infoBox.innerHTML = `No airports found within ${radius} km.`;
     return;

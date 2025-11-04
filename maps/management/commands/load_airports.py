@@ -17,14 +17,13 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"File not found: {path}"))
             return
 
-        self.stdout.write(f"📂 Loading airports from: {path}")
+        self.stdout.write(f"Loading airports from: {path}")
 
         imported = skipped = 0
 
         with open(path, "r", encoding="utf-8", newline="") as f:
             reader = csv.reader(f)
             for row in reader:
-                # Example row:
                 # 1,"Goroka Airport","Goroka","Papua New Guinea","GKA","AYGA",-6.081689834590001,145.391998291,5282,10,"U","Pacific/Port_Moresby","airport","OurAirports"
                 if not row or len(row) < 8:
                     continue
@@ -37,7 +36,7 @@ class Command(BaseCommand):
                     lat = float(row[6])
                     lon = float(row[7])
 
-                    # 🧹 Filter logic
+                    # Filter logic
                     if not iata or len(iata) != 3:
                         skipped += 1
                         continue

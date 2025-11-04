@@ -1,4 +1,4 @@
-from django.core.management.base import BaseCommand
+"""from django.core.management.base import BaseCommand
 from django.contrib.gis.geos import Point
 from django.db import connection
 from maps.models import Airport, FlightRoute
@@ -60,10 +60,12 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("Calculating distances (PostGIS)..."))
         with connection.cursor() as cursor:
             cursor.execute("""
-                UPDATE maps_flightroute
-                SET distance_km = ST_Length(geom::geography)/1000.0
-                WHERE geom IS NOT NULL;
-            """)
-        self.stdout.write(self.style.SUCCESS("Distances updated.\n"))
+               # UPDATE maps_flightroute
+                #SET distance_km = ST_Length(geom::geography)/1000.0
+                #WHERE geom IS NOT NULL;
+ #           """)
+       # self.stdout.write(self.style.SUCCESS("Distances updated.\n"))
 
-        self.stdout.write(self.style.SUCCESS("Data load complete."))
+       # self.stdout.write(self.style.SUCCESS("Data load complete."))
+        
+      #  """
