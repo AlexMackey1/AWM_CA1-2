@@ -1,257 +1,576 @@
-// Flight Connections Map + Info Panel
+// ===========================
+// GLOBAL STATE & CONFIGURATION
+// ===========================
+const CONFIG = {
+    API_BASE: '/api',
+    DEFAULT_CENTER: [53.35, -6.26],
+    DEFAULT_ZOOM: 5,
+    CLUSTER_RADIUS: 50,
+    SEARCH_DEBOUNCE: 300,
+    MAX_ROUTES_DISPLAY: 50
+};
 
-const map = L.map('map').setView([53.35, -6.26], 5);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
+const state = {
+    map: null,
+    airportMarkers: null,
+    routeLayer: null,
+    allAirports: [],
+    filteredAirports: [],
+    countries: new Set(),
+    isLoading: false
+};
 
-// Global variables
-let routeLayer = null;
-let airportLayer = null;
-let selectedAirport = null;
+// ===========================
+// INITIALIZATION
+// ===========================
+document.addEventListener('DOMContentLoaded', () => {
+    initializeMap();
+    initializeSidebar();
+    loadAirports();
+    attachEventListeners();
+});
 
-// Styles
-const defaultStyle = { radius: 6, fillColor: "#0074D9", color: "#fff", weight: 1, opacity: 1, fillOpacity: 0.9 };
-const selectedStyle = { radius: 8, fillColor: "#FFD700", color: "#000", weight: 2, opacity: 1, fillOpacity: 1.0 };
-const connectedStyle = { radius: 6, fillColor: "#2ECC40", color: "#fff", weight: 1, opacity: 1, fillOpacity: 0.9 };
-
-// Elements
-const infoBox = document.getElementById("infoBox");
-const routePanel = document.getElementById("routePanel");
-const routeList = document.getElementById("routeList");
-const panelTitle = document.getElementById("panelTitle");
-
-// Load airports
-fetch('/api/airports/')
-  .then(res => res.json())
-  .then(data => {
-    airportLayer = L.geoJSON(data, {
-      pointToLayer: (f, latlng) => L.circleMarker(latlng, defaultStyle),
-      onEachFeature: (feature, layer) => {
-        const props = feature.properties;
-        layer.bindPopup(`
-          <b>${props.name}</b><br>${props.city}, ${props.country}<br>Code: ${props.iata_code}
-        `);
-        layer.on('click', () => loadRoutes(props.iata_code, props.name, layer));
-      }
-    }).addTo(map);
-
-    const bounds = airportLayer.getBounds();
-    if (bounds.isValid()) map.fitBounds(bounds);
-  });
-
-// Load routes for selected airport
-function loadRoutes(iata, airportName, layerClicked) {
-  if (selectedAirport === layerClicked) return;
-  selectedAirport = layerClicked;
-
-  airportLayer.eachLayer(l => l.setStyle(defaultStyle));
-  layerClicked.setStyle(selectedStyle);
-
-  infoBox.innerHTML = `<em>Loading routes from ${airportName}...</em>`;
-  routePanel.classList.add('hidden');
-
-  fetch(`/api/airports/routes/?origin=${iata}`)
-    .then(res => res.json())
-    .then(data => {
-      if (routeLayer) map.removeLayer(routeLayer);
-
-      routeLayer = L.geoJSON(data, {
-        style: { color: "red", weight: 2 },
-        onEachFeature: (feature, layer) => {
-          const p = feature.properties;
-          layer.bindPopup(`<b>${p.origin} → ${p.destination}</b><br>Distance: ${p.distance_km.toFixed(1)} km`);
+// ===========================
+// MAP INITIALIZATION
+// ===========================
+function initializeMap() {
+    // Initialize Leaflet map
+    state.map = L.map('map').setView(CONFIG.DEFAULT_CENTER, CONFIG.DEFAULT_ZOOM);
+    
+    // Add tile layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(state.map);
+    
+    // Initialize marker cluster group
+    state.airportMarkers = L.markerClusterGroup({
+        maxClusterRadius: CONFIG.CLUSTER_RADIUS,
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+        zoomToBoundsOnClick: true,
+        iconCreateFunction: function(cluster) {
+            const count = cluster.getChildCount();
+            let className = 'marker-cluster-';
+            
+            if (count < 10) {
+                className += 'small';
+            } else if (count < 50) {
+                className += 'medium';
+            } else {
+                className += 'large';
+            }
+            
+            return L.divIcon({
+                html: '<div><span>' + count + '</span></div>',
+                className: 'marker-cluster ' + className,
+                iconSize: L.point(40, 40)
+            });
         }
-      }).addTo(map);
+    });
+    
+    state.map.addLayer(state.airportMarkers);
+    
+    // Initialize route layer
+    state.routeLayer = L.layerGroup().addTo(state.map);
+}
 
-      highlightConnectedAirports(data);
-      populateRoutePanel(data, airportName);
-
-      const bounds = routeLayer.getBounds();
-      if (bounds.isValid()) map.fitBounds(bounds);
-
-      infoBox.innerHTML = `<b>${airportName}</b>: Showing ${data.features.length} route(s).`;
-    })
-    .catch(() => {
-      infoBox.innerHTML = `<b>${airportName}</b>: No routes found.`;
-      routePanel.classList.add('hidden');
+// ===========================
+// SIDEBAR MANAGEMENT
+// ===========================
+function initializeSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtn = document.getElementById('sidebarToggle');
+    
+    toggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('collapsed');
+        
+        // Update icon
+        const icon = toggleBtn.querySelector('i');
+        if (sidebar.classList.contains('collapsed')) {
+            icon.className = 'fas fa-chevron-right';
+        } else {
+            icon.className = 'fas fa-bars';
+        }
+        
+        // Invalidate map size after animation
+        setTimeout(() => {
+            state.map.invalidateSize();
+        }, 300);
     });
 }
 
-// Highlight connected airports
-function highlightConnectedAirports(routeData) {
-  const connectedIATAs = routeData.features.map(f => f.properties.destination);
-
-  airportLayer.eachLayer(l => {
-    const props = l.feature.properties;
-    if (connectedIATAs.includes(props.iata_code)) {
-      l.setStyle(connectedStyle);
-    } else if (props.iata_code !== selectedAirport.feature.properties.iata_code) {
-      l.setStyle({ ...defaultStyle, fillOpacity: 0.3 });
+// ===========================
+// DATA LOADING
+// ===========================
+async function loadAirports() {
+    showLoading(true);
+    
+    try {
+        const response = await fetch(`${CONFIG.API_BASE}/airports/`);
+        if (!response.ok) throw new Error('Failed to load airports');
+        
+        const data = await response.json();
+        state.allAirports = data.features;
+        state.filteredAirports = [...state.allAirports];
+        
+        // Extract unique countries
+        state.allAirports.forEach(feature => {
+            state.countries.add(feature.properties.country);
+        });
+        
+        // Populate country filter
+        populateCountryFilter();
+        
+        // Display airports
+        displayAirports(state.filteredAirports);
+        
+        // Update stats
+        updateStats();
+        
+        showLoading(false);
+    } catch (error) {
+        console.error('Error loading airports:', error);
+        showError('Failed to load airports. Please refresh the page.');
+        showLoading(false);
     }
-  });
 }
 
-// Populate info panel
-function populateRoutePanel(routeData, airportName) {
-  routeList.innerHTML = "";
-  panelTitle.innerText = `Routes from ${airportName}`;
-
-  routeData.features.forEach((f, idx) => {
-    const li = document.createElement("li");
-    li.textContent = `${f.properties.origin} → ${f.properties.destination} (${f.properties.distance_km.toFixed(1)} km)`;
-    li.onclick = () => zoomToRoute(idx);
-    routeList.appendChild(li);
-  });
-
-  routePanel.classList.remove('hidden');
+function displayAirports(airports) {
+    // Clear existing markers
+    state.airportMarkers.clearLayers();
+    
+    // Add airport markers
+    airports.forEach(feature => {
+        const coords = feature.geometry.coordinates;
+        const props = feature.properties;
+        
+        const marker = L.circleMarker([coords[1], coords[0]], {
+            radius: 6,
+            fillColor: props.is_major_hub ? '#dc3545' : '#667eea',
+            color: '#fff',
+            weight: 1,
+            opacity: 1,
+            fillOpacity: 0.8
+        });
+        
+        // Create popup content
+        const popupContent = `
+            <div>
+                <b>${props.name}</b><br>
+                <small>${props.city}, ${props.country}</small><br>
+                <small><strong>IATA:</strong> ${props.iata_code}</small>
+                ${props.is_major_hub ? '<br><small><i class="fas fa-star"></i> Major Hub</small>' : ''}
+                <br><br>
+                <button onclick="loadRoutes('${props.iata_code}', '${props.name}')" 
+                        style="padding: 5px 10px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    View Routes
+                </button>
+            </div>
+        `;
+        
+        marker.bindPopup(popupContent);
+        state.airportMarkers.addLayer(marker);
+    });
+    
+    // Fit bounds if airports exist
+    if (airports.length > 0 && state.airportMarkers.getBounds().isValid()) {
+        state.map.fitBounds(state.airportMarkers.getBounds(), { padding: [50, 50] });
+    }
 }
 
-// Zoom to a specific route when clicked
-function zoomToRoute(index) {
-  if (!routeLayer) return;
-  const featureLayer = Object.values(routeLayer._layers)[index];
-  if (!featureLayer) return;
-
-  featureLayer.setStyle({ color: "yellow", weight: 4 });
-  map.fitBounds(featureLayer.getBounds());
-  setTimeout(() => routeLayer.resetStyle(featureLayer), 800);
+// ===========================
+// ROUTE LOADING
+// ===========================
+async function loadRoutes(iataCode, airportName) {
+    if (state.isLoading) return;
+    state.isLoading = true;
+    
+    try {
+        const response = await fetch(`${CONFIG.API_BASE}/airports/routes/?origin=${iataCode}&limit=${CONFIG.MAX_ROUTES_DISPLAY}`);
+        if (!response.ok) throw new Error('Failed to load routes');
+        
+        const data = await response.json();
+        
+        // Clear existing routes
+        state.routeLayer.clearLayers();
+        
+        if (data.features.length === 0) {
+            updateInfoBox(`<strong>${airportName}</strong> has no routes in the database.`);
+            state.isLoading = false;
+            return;
+        }
+        
+        // Add routes to map
+        data.features.forEach(feature => {
+            const props = feature.properties;
+            const distance = props.distance_km || 0;
+            
+            // Color routes by distance
+            let color = '#667eea'; // Short (< 1000 km)
+            if (distance > 5000) {
+                color = '#dc3545'; // Long (> 5000 km)
+            } else if (distance > 2000) {
+                color = '#fd7e14'; // Medium (2000-5000 km)
+            }
+            
+            const route = L.geoJSON(feature, {
+                style: {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.6
+                }
+            });
+            
+            route.bindPopup(`
+                <b>${props.origin} → ${props.destination}</b><br>
+                <small>Distance: ${distance.toFixed(0)} km</small><br>
+                <small>Airline: ${props.airline || 'N/A'}</small>
+            `);
+            
+            state.routeLayer.addLayer(route);
+        });
+        
+        // Update info box
+        updateInfoBox(`
+            <strong>${airportName}</strong><br>
+            Showing ${data.features.length} route(s)
+            ${data.features.length >= CONFIG.MAX_ROUTES_DISPLAY ? ` (limited to ${CONFIG.MAX_ROUTES_DISPLAY})` : ''}
+        `);
+        
+        // Add legend for route colors
+        const legend = `
+            <div class="mt-2">
+                <small><strong>Distance Legend:</strong></small><br>
+                <small><span style="color: #667eea;">●</span> < 1,000 km</small><br>
+                <small><span style="color: #fd7e14;">●</span> 1,000-5,000 km</small><br>
+                <small><span style="color: #dc3545;">●</span> > 5,000 km</small>
+            </div>
+        `;
+        updateStatsBox(legend);
+        
+    } catch (error) {
+        console.error('Error loading routes:', error);
+        showError('Failed to load routes.');
+    } finally {
+        state.isLoading = false;
+    }
 }
 
-// Clear routes + reset styles
-document.getElementById("clearBtn").onclick = () => {
-  if (routeLayer) map.removeLayer(routeLayer);
-  selectedAirport = null;
-  routePanel.classList.add('hidden');
-  airportLayer.eachLayer(l => l.setStyle(defaultStyle));
-  infoBox.innerHTML = "<strong>Click an airport</strong> to view its connections.";
-};
+// Make loadRoutes globally accessible (for popup buttons)
+window.loadRoutes = loadRoutes;
 
-// --- Nearby Airports Functionality ---
-let nearbyLayer = L.geoJSON(null, {
-  pointToLayer: (f, latlng) =>
-    L.circleMarker(latlng, { radius: 5, color: "purple", fillOpacity: 0.8 })
-      .bindPopup(`<b>${f.properties.name}</b><br>${f.properties.city}, ${f.properties.country}`)
-}).addTo(map);
+// ===========================
+// SEARCH FUNCTIONALITY
+// ===========================
+let searchTimeout = null;
 
-let clickMarker = null;   // user click point
-let searchCircle = null;  // visible radius circle
-
-// --- Helper to clear only results, not the marker ---
-function clearNearbyResults() {
-  nearbyLayer.clearLayers();
-  if (searchCircle) {
-    map.removeLayer(searchCircle);
-    searchCircle = null;
-  }
+function initializeSearch() {
+    const searchInput = document.getElementById('searchInput');
+    const searchResults = document.getElementById('searchResults');
+    
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim();
+        
+        // Clear previous timeout
+        if (searchTimeout) clearTimeout(searchTimeout);
+        
+        if (query.length < 2) {
+            searchResults.classList.remove('show');
+            return;
+        }
+        
+        // Debounce search
+        searchTimeout = setTimeout(() => {
+            performSearch(query);
+        }, CONFIG.SEARCH_DEBOUNCE);
+    });
+    
+    // Close search results when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.classList.remove('show');
+        }
+    });
 }
 
-// --- Reset everything (for Clear button) ---
-function clearExtraLayers() {
-  clearNearbyResults();
-  if (clickMarker) {
-    map.removeLayer(clickMarker);
-    clickMarker = null;
-  }
+function performSearch(query) {
+    const results = state.allAirports.filter(feature => {
+        const props = feature.properties;
+        const searchStr = query.toLowerCase();
+        
+        return (
+            props.name.toLowerCase().includes(searchStr) ||
+            props.city.toLowerCase().includes(searchStr) ||
+            props.country.toLowerCase().includes(searchStr) ||
+            props.iata_code.toLowerCase().includes(searchStr)
+        );
+    }).slice(0, 10); // Limit to 10 results
+    
+    displaySearchResults(results);
 }
 
-// --- Select location on map ---
-map.on("click", function (e) {
-  const { lat, lng } = e.latlng;
+function displaySearchResults(results) {
+    const searchResults = document.getElementById('searchResults');
+    
+    if (results.length === 0) {
+        searchResults.innerHTML = '<div class="search-result-item">No airports found</div>';
+        searchResults.classList.add('show');
+        return;
+    }
+    
+    const html = results.map(feature => {
+        const props = feature.properties;
+        return `
+            <div class="search-result-item" onclick="selectAirport('${props.iata_code}', ${feature.geometry.coordinates[1]}, ${feature.geometry.coordinates[0]})">
+                <strong>${props.name}</strong>
+                <small>${props.city}, ${props.country} (${props.iata_code})</small>
+            </div>
+        `;
+    }).join('');
+    
+    searchResults.innerHTML = html;
+    searchResults.classList.add('show');
+}
 
-  // Remove old marker but NOT the results yet
-  if (clickMarker) map.removeLayer(clickMarker);
-  if (searchCircle) map.removeLayer(searchCircle);
+function selectAirport(iataCode, lat, lon) {
+    // Close search results
+    document.getElementById('searchResults').classList.remove('show');
+    document.getElementById('searchInput').value = '';
+    
+    // Zoom to airport
+    state.map.setView([lat, lon], 10);
+    
+    // Find and open popup
+    state.airportMarkers.eachLayer(layer => {
+        const latlng = layer.getLatLng();
+        if (Math.abs(latlng.lat - lat) < 0.01 && Math.abs(latlng.lng - lon) < 0.01) {
+            layer.openPopup();
+        }
+    });
+}
 
-  // Add new marker
-  clickMarker = L.marker([lat, lng], { draggable: true })
-    .addTo(map)
-    .bindPopup(`<b>Selected point</b><br>${lat.toFixed(3)}, ${lng.toFixed(3)}<br>(drag to adjust)`)
-    .openPopup();
+// Make selectAirport globally accessible
+window.selectAirport = selectAirport;
 
-  infoBox.innerHTML = `Selected point: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
-});
+// ===========================
+// FILTER FUNCTIONALITY
+// ===========================
+function populateCountryFilter() {
+    const select = document.getElementById('countryFilter');
+    const sortedCountries = Array.from(state.countries).sort();
+    
+    sortedCountries.forEach(country => {
+        const option = document.createElement('option');
+        option.value = country;
+        option.textContent = country;
+        select.appendChild(option);
+    });
+}
 
-// --- Nearby Airports ---
-document.getElementById("btnNearby").onclick = async () => {
-  if (!clickMarker) {
-    alert("Click on the map first to select a location.");
-    return;
-  }
+function applyFilters() {
+    const country = document.getElementById('countryFilter').value;
+    const majorHubsOnly = document.getElementById('majorHubsOnly').checked;
+    
+    state.filteredAirports = state.allAirports.filter(feature => {
+        const props = feature.properties;
+        
+        let matchesCountry = !country || props.country === country;
+        let matchesHubStatus = !majorHubsOnly || props.is_major_hub;
+        
+        return matchesCountry && matchesHubStatus;
+    });
+    
+    displayAirports(state.filteredAirports);
+    updateStats();
+    
+    updateInfoBox(`Filters applied: ${state.filteredAirports.length} airport(s) displayed`);
+}
 
-  // Get radius from user
-  const radius = parseFloat(prompt("Enter search radius in km:", "100"));
-  if (isNaN(radius) || radius <= 0) {
-    alert("Invalid radius value.");
-    return;
-  }
+function resetFilters() {
+    document.getElementById('countryFilter').value = '';
+    document.getElementById('majorHubsOnly').checked = false;
+    
+    state.filteredAirports = [...state.allAirports];
+    displayAirports(state.filteredAirports);
+    updateStats();
+    
+    updateInfoBox('Filters reset. All airports displayed.');
+}
 
-  clearNearbyResults(); // clear only old search results
-  const { lat, lng } = clickMarker.getLatLng();
+// ===========================
+// LAYER CONTROLS
+// ===========================
+function initializeLayerControls() {
+    const showAirports = document.getElementById('showAirports');
+    const showRoutes = document.getElementById('showRoutes');
+    
+    showAirports.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            state.map.addLayer(state.airportMarkers);
+        } else {
+            state.map.removeLayer(state.airportMarkers);
+        }
+    });
+    
+    showRoutes.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            state.map.addLayer(state.routeLayer);
+        } else {
+            state.map.removeLayer(state.routeLayer);
+        }
+    });
+}
 
-  // Draw circle (radius in meters)
-  searchCircle = L.circle([lat, lng], {
-    radius: radius * 1000,
-    color: "purple",
-    fillColor: "purple",
-    fillOpacity: 0.1,
-  }).addTo(map);
+// ===========================
+// ACTION BUTTONS
+// ===========================
+function clearRoutes() {
+    state.routeLayer.clearLayers();
+    updateInfoBox('Routes cleared. Click on an airport to view its routes.');
+    updateStatsBox('');
+}
 
-  // Fetch nearby airports
-  const res = await fetch(`/api/airports/nearby/?lat=${lat}&lon=${lng}&radius=${radius}`);
-  const data = await res.json();
+async function findNearbyAirports() {
+    const userLat = prompt('Enter your latitude:', '53.35');
+    const userLon = prompt('Enter your longitude:', '-6.26');
+    const radius = prompt('Enter search radius (km):', '100');
+    
+    if (!userLat || !userLon || !radius) return;
+    
+    try {
+        const response = await fetch(`${CONFIG.API_BASE}/airports/nearby/?lat=${userLat}&lon=${userLon}&radius=${radius}`);
+        if (!response.ok) throw new Error('Failed to find nearby airports');
+        
+        const data = await response.json();
+        
+        updateInfoBox(`Found ${data.features.length} airport(s) within ${radius} km of (${userLat}, ${userLon})`);
+        
+        // Highlight nearby airports
+        displayAirports(data.features);
+        
+    } catch (error) {
+        console.error('Error finding nearby airports:', error);
+        showError('Failed to find nearby airports.');
+    }
+}
 
-  // Handle no results
-  if (data.features.length === 0) {
-    infoBox.innerHTML = `No airports found within ${radius} km.`;
-    return;
-  }
+async function findNearestAirport() {
+    const userLat = prompt('Enter your latitude:', '53.35');
+    const userLon = prompt('Enter your longitude:', '-6.26');
+    
+    if (!userLat || !userLon) return;
+    
+    try {
+        const response = await fetch(`${CONFIG.API_BASE}/airports/nearest/?lat=${userLat}&lon=${userLon}`);
+        if (!response.ok) throw new Error('Failed to find nearest airport');
+        
+        const data = await response.json();
+        
+        if (data.features && data.features.length > 0) {
+            const airport = data.features[0];
+            const props = airport.properties;
+            const coords = airport.geometry.coordinates;
+            
+            updateInfoBox(`
+                <strong>Nearest Airport:</strong><br>
+                ${props.name}<br>
+                ${props.city}, ${props.country}<br>
+                Distance: ${props.distance_km ? props.distance_km.toFixed(1) : 'N/A'} km
+            `);
+            
+            // Zoom to airport
+            state.map.setView([coords[1], coords[0]], 10);
+            
+            // Highlight the airport
+            displayAirports([airport]);
+        }
+        
+    } catch (error) {
+        console.error('Error finding nearest airport:', error);
+        showError('Failed to find nearest airport.');
+    }
+}
 
-  nearbyLayer.addData(data.features);
-  map.fitBounds(searchCircle.getBounds());
+async function showTopHubs() {
+    try {
+        const response = await fetch(`${CONFIG.API_BASE}/airports/hubs/?top=10`);
+        if (!response.ok) throw new Error('Failed to load top hubs');
+        
+        const data = await response.json();
+        
+        if (data.length > 0) {
+            const html = '<strong>Top 10 Countries by Airport Count:</strong><br>' +
+                data.map((item, index) => 
+                    `${index + 1}. ${item.country}: ${item.count} airports`
+                ).join('<br>');
+            
+            updateStatsBox(html);
+        }
+        
+    } catch (error) {
+        console.error('Error loading top hubs:', error);
+        showError('Failed to load top hubs.');
+    }
+}
 
-  infoBox.innerHTML = `<b>${data.features.length}</b> airport(s) within ${radius} km.`;
-};
+// ===========================
+// UI HELPERS
+// ===========================
+function updateInfoBox(message) {
+    const infoBox = document.getElementById('infoBox');
+    infoBox.innerHTML = `<p>${message}</p><div id="statsBox" class="stats-box"></div>`;
+}
 
-// --- Nearest Airport ---
-document.getElementById("btnNearest").onclick = async () => {
-  if (!clickMarker) {
-    alert("Click on the map first to select a location.");
-    return;
-  }
+function updateStatsBox(content) {
+    const statsBox = document.getElementById('statsBox');
+    if (statsBox) {
+        statsBox.innerHTML = content;
+    }
+}
 
-  clearNearbyResults();
-  const { lat, lng } = clickMarker.getLatLng();
+function updateStats() {
+    const total = state.allAirports.length;
+    const displayed = state.filteredAirports.length;
+    const stats = `
+        <strong>Statistics:</strong><br>
+        Total airports: ${total}<br>
+        Displayed: ${displayed}<br>
+        Countries: ${state.countries.size}
+    `;
+    updateStatsBox(stats);
+}
 
-  const res = await fetch(`/api/airports/nearest/?lat=${lat}&lon=${lng}`);
-  const data = await res.json();
+function showLoading(show) {
+    const overlay = document.getElementById('loadingOverlay');
+    if (show) {
+        overlay.classList.remove('hidden');
+    } else {
+        overlay.classList.add('hidden');
+    }
+}
 
-  if (data.features.length === 0) {
-    infoBox.innerHTML = "No nearby airports found.";
-    return;
-  }
+function showError(message) {
+    updateInfoBox(`<span style="color: #dc3545;"><i class="fas fa-exclamation-triangle"></i> ${message}</span>`);
+}
 
-  nearbyLayer.addData(data.features);
-
-  const airport = data.features[0].properties;
-  infoBox.innerHTML = `Nearest airport: <b>${airport.name}</b> (${airport.iata_code})`;
-};
-
-// --- Top Hubs ---
-document.getElementById("btnHubs").onclick = async () => {
-  const res = await fetch("/api/airports/hubs/?top=10");
-  const data = await res.json();
-  let html = "<b>Top 10 Hubs</b><ul>";
-  data.forEach(d => (html += `<li>${d.country}: ${d.count}</li>`));
-  html += "</ul>";
-  L.popup().setLatLng(map.getCenter()).setContent(html).openOn(map);
-};
-
-// --- Integrate with Clear Routes button ---
-const clearBtn = document.getElementById("clearBtn");
-const oldClear = clearBtn.onclick;
-clearBtn.onclick = () => {
-  if (typeof oldClear === "function") oldClear();
-  clearExtraLayers();
-};
+// ===========================
+// EVENT LISTENERS
+// ===========================
+function attachEventListeners() {
+    // Search
+    initializeSearch();
+    
+    // Filters
+    document.getElementById('applyFilters').addEventListener('click', applyFilters);
+    document.getElementById('resetFilters').addEventListener('click', resetFilters);
+    
+    // Layer controls
+    initializeLayerControls();
+    
+    // Action buttons
+    document.getElementById('clearBtn').addEventListener('click', clearRoutes);
+    document.getElementById('btnNearby').addEventListener('click', findNearbyAirports);
+    document.getElementById('btnNearest').addEventListener('click', findNearestAirport);
+    document.getElementById('btnHubs').addEventListener('click', showTopHubs);
+}

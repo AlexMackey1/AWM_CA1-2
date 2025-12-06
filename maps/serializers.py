@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from django.contrib.gis.geos import GEOSGeometry
+from django.contrib.gis.geos import GEOSGeometry, Point
 import json
 from .models import Airport, FlightRoute
 
@@ -30,6 +30,7 @@ class AirportSerializer(serializers.ModelSerializer):
             "city": obj.city,
             "country": obj.country,
             "altitude_ft": obj.altitude_ft,
+            "is_major_hub": obj.is_major_hub,  # ✅ ADDED THIS LINE
         }
 
 
@@ -55,8 +56,10 @@ class FlightRouteSerializer(serializers.ModelSerializer):
             "id": obj.id,
             "origin": obj.origin.iata_code if obj.origin else None,
             "destination": obj.destination.iata_code if obj.destination else None,
+            "airline": obj.airline,  # ✅ ADDED airline field
             "distance_km": obj.distance_km,
         }
+
 
 class AirportCreateSerializer(serializers.ModelSerializer):
     """
@@ -74,6 +77,7 @@ class AirportCreateSerializer(serializers.ModelSerializer):
             "city",
             "country",
             "altitude_ft",
+            "is_major_hub",
             "lat",
             "lon",
         )
@@ -83,3 +87,17 @@ class AirportCreateSerializer(serializers.ModelSerializer):
         lon = validated_data.pop("lon")
         validated_data["geom"] = Point(lon, lat, srid=4326)
         return Airport.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        # Handle lat/lon if provided
+        if "lat" in validated_data and "lon" in validated_data:
+            lat = validated_data.pop("lat")
+            lon = validated_data.pop("lon")
+            instance.geom = Point(lon, lat, srid=4326)
+        
+        # Update other fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        instance.save()
+        return instance

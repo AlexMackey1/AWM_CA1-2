@@ -3,40 +3,136 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flight Connections Explorer</title>
 
     <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    
+    <!-- Leaflet MarkerCluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{% static 'maps/css/style.css' %}">
 </head>
 <body>
+    <!-- Header -->
     <header>
-        <h1>Flight Connections Explorer</h1>
-        <p>Explore global air routes and discover connectivity between major airports.</p>
+        <div class="header-content">
+            <h1><i class="fas fa-plane"></i> Flight Connections Explorer</h1>
+            <p>Explore global air routes and discover connectivity between major airports</p>
+        </div>
     </header>
 
-    <div id="map"></div>
+    <!-- Main container -->
+    <div class="main-container">
+        <!-- Collapsible Sidebar -->
+        <div id="sidebar" class="sidebar">
+            <button class="sidebar-toggle" id="sidebarToggle">
+                <i class="fas fa-bars"></i>
+            </button>
+            
+            <div class="sidebar-content">
+                <!-- Search Section -->
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-search"></i> Search Airports</h3>
+                    <div class="search-container">
+                        <input 
+                            type="text" 
+                            id="searchInput" 
+                            placeholder="Search by name, city, or IATA code..."
+                            autocomplete="off"
+                        >
+                        <div id="searchResults" class="search-results"></div>
+                    </div>
+                </div>
 
- <div id="controls">
-    <button id="clearBtn">Clear Routes</button>
-    <div id="infoBox">Click an airport to view its flight routes.</div>
+                <!-- Filter Section -->
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-filter"></i> Filters</h3>
+                    <div class="filter-group">
+                        <label for="countryFilter">Country:</label>
+                        <select id="countryFilter" class="filter-select">
+                            <option value="">All Countries</option>
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>
+                            <input type="checkbox" id="majorHubsOnly">
+                            Show major hubs only
+                        </label>
+                    </div>
+                    <button id="applyFilters" class="btn btn-primary">
+                        <i class="fas fa-check"></i> Apply Filters
+                    </button>
+                    <button id="resetFilters" class="btn btn-secondary">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                </div>
 
-    <div id="extraControls">
-        <button id="btnNearby">Nearby Airports</button>
-        <button id="btnNearest">Nearest Airport</button>
-        <button id="btnHubs">Top Hubs</button>
+                <!-- Layer Controls Section -->
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-layer-group"></i> Map Layers</h3>
+                    <div class="layer-controls">
+                        <label>
+                            <input type="checkbox" id="showAirports" checked>
+                            <i class="fas fa-circle"></i> Airports
+                        </label>
+                        <label>
+                            <input type="checkbox" id="showRoutes" checked>
+                            <i class="fas fa-route"></i> Routes
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Info Section -->
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-info-circle"></i> Information</h3>
+                    <div id="infoBox" class="info-box">
+                        <p>Click on any airport to view its flight routes.</p>
+                        <div id="statsBox" class="stats-box"></div>
+                    </div>
+                </div>
+
+                <!-- Actions Section -->
+                <div class="sidebar-section">
+                    <h3><i class="fas fa-tools"></i> Actions</h3>
+                    <button id="clearBtn" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Clear Routes
+                    </button>
+                    <button id="btnNearby" class="btn btn-action">
+                        <i class="fas fa-map-marker-alt"></i> Nearby Airports
+                    </button>
+                    <button id="btnNearest" class="btn btn-action">
+                        <i class="fas fa-location-arrow"></i> Nearest Airport
+                    </button>
+                    <button id="btnHubs" class="btn btn-action">
+                        <i class="fas fa-star"></i> Top Hubs
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Container -->
+        <div id="map"></div>
     </div>
-</div>
 
-    <div id="routePanel" class="hidden">
-        <h3 id="panelTitle">Routes</h3>
-        <ul id="routeList"></ul>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Loading airports...</p>
     </div>
 
     <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet MarkerCluster JS -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     
     <!-- Custom JS -->
     <script src="{% static 'maps/js/main.js' %}"></script>

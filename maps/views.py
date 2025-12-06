@@ -16,6 +16,7 @@ def index(request):
     """Serves the Leaflet front-end map page."""
     return render(request, "maps/index.html")
 
+
 #  AIRPORT VIEWSET
 class AirportViewSet(viewsets.ModelViewSet):
     """
@@ -25,17 +26,30 @@ class AirportViewSet(viewsets.ModelViewSet):
     queryset = Airport.objects.all()
     serializer_class = AirportSerializer
 
+    def list(self, request, *args, **kwargs):
+        """
+        Return all airports as a GeoJSON FeatureCollection.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(
+            {
+                "type": "FeatureCollection",
+                "features": serializer.data,
+            }
+        )
+
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
             return AirportCreateSerializer
         return AirportSerializer
-    
-    # ORIGINAL FUNCTIONALITY: ROUTES
+
+    # ORIGINAL FUNCTIONALITY: ROUTES (NOW WITH LIMIT PARAMETER)
     @action(detail=False, methods=["get"])
     def routes(self, request):
         """
         Return all routes originating from a given airport.
-        Example: /api/airports/routes/?origin=DUB
+        Example: /api/airports/routes/?origin=DUB&limit=50
         """
         origin_code = request.query_params.get("origin")
         if not origin_code:
@@ -51,7 +65,12 @@ class AirportViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        routes = FlightRoute.objects.filter(origin=origin_airport)[:1000]
+        # ✅ ADDED: Support for limit parameter
+        limit = int(request.query_params.get("limit", 1000))
+        # Cap the limit to prevent excessive data
+        limit = min(limit, 1000)
+
+        routes = FlightRoute.objects.filter(origin=origin_airport)[:limit]
         data = FlightRouteSerializer(routes, many=True).data
         return Response({"type": "FeatureCollection", "features": data})
 
@@ -97,7 +116,17 @@ class AirportViewSet(viewsets.ModelViewSet):
 
         pt = Point(lon, lat, srid=4326)
         qs = Airport.objects.annotate(distance=GDistance("geom", pt)).order_by("distance")[:1]
-        data = AirportSerializer(qs, many=True).data
+
+        # ✅ ADDED: Include distance in response
+        if qs.exists():
+            airport = qs.first()
+            data = AirportSerializer([airport], many=True).data
+            # Add distance to properties
+            if data and len(data) > 0:
+                data[0]["properties"]["distance_km"] = round(airport.distance.km, 2)
+        else:
+            data = []
+
         return Response({"type": "FeatureCollection", "features": data})
 
     @action(detail=False, methods=["get"])
@@ -114,6 +143,7 @@ class AirportViewSet(viewsets.ModelViewSet):
         )
         return Response(list(rows))
 
+
 #  FLIGHT ROUTE VIEWSET
 class FlightRouteViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -122,4 +152,3 @@ class FlightRouteViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = FlightRoute.objects.all()
     serializer_class = FlightRouteSerializer
-
