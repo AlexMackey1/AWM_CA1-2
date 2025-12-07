@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with PostGIS
+  postgres:
+    image: postgis/postgis:15-3.4
+    container_name: webmapping_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    # Expose Postgres to the host on a *different* port (5440) to avoid clashing
+    # with your local Windows Postgres on 5433.
+    ports:
+      - "5440:5432"
+    networks:
+      - webmapping_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PgAdmin for database administration
+  pgadmin:
+    image: dpage/pgadmin4:7
+    container_name: webmapping_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    networks:
+      - webmapping_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Django Web Application
+  web:
+    build:
+      context: .
+      dockerfile: docker/django/Dockerfile
+    container_name: webmapping_django
+    restart: unless-stopped
+    environment:
+      - DEBUG=${DEBUG}
+      - DATABASE_HOST=postgres
+      - DATABASE_NAME=${DATABASE_NAME}
+      - DATABASE_USER=${DATABASE_USER}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - DATABASE_PORT=5432          # INTERNAL container port
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+    volumes:
+      - ./:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    networks:
+      - webmapping_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # entrypoint.sh will handle waiting for DB, migrate, collectstatic
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+  # Nginx Reverse Proxy
+  nginx:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    container_name: webmapping_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+    networks:
+      - webmapping_network
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  static_volume:
+  media_volume:
+
+networks:
+  webmapping_network:
+    driver: bridge

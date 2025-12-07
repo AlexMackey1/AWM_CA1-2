@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    ports: []  # Remove external port exposure
+
+  pgadmin:
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: 'True'
+    ports: []  # Remove external port exposure
+
+  web:
+    environment:
+      - DEBUG=False
+      - DATABASE_HOST=postgres
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             gunicorn CA.wsgi:application --bind 0.0.0.0:8000 --workers 4"
+    ports: []  # Remove external port exposure
+
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  postgres_data_prod:
+  pgadmin_data_prod:
