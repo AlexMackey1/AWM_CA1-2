@@ -44,12 +44,11 @@ class AirportViewSet(viewsets.ModelViewSet):
             return AirportCreateSerializer
         return AirportSerializer
 
-    # ORIGINAL FUNCTIONALITY: ROUTES (NOW WITH LIMIT PARAMETER)
     @action(detail=False, methods=["get"])
     def routes(self, request):
         """
         Return all routes originating from a given airport.
-        Example: /api/airports/routes/?origin=DUB&limit=50
+        Example: /api/airports/routes/?origin=DUB
         """
         origin_code = request.query_params.get("origin")
         if not origin_code:
@@ -65,14 +64,10 @@ class AirportViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # ✅ ADDED: Support for limit parameter
-        limit = int(request.query_params.get("limit", 1000))
-        # Cap the limit to prevent excessive data
-        limit = min(limit, 1000)
-
-        routes = FlightRoute.objects.filter(origin=origin_airport)[:limit]
+        routes = FlightRoute.objects.filter(origin=origin_airport)
         data = FlightRouteSerializer(routes, many=True).data
         return Response({"type": "FeatureCollection", "features": data})
+
 
     @action(detail=False, methods=["get"])
     def nearby(self, request):

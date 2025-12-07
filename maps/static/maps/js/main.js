@@ -6,8 +6,7 @@ const CONFIG = {
     DEFAULT_CENTER: [53.35, -6.26],
     DEFAULT_ZOOM: 5,
     CLUSTER_RADIUS: 50,
-    SEARCH_DEBOUNCE: 300,
-    MAX_ROUTES_DISPLAY: 50
+    SEARCH_DEBOUNCE: 300
 };
 
 const state = {
@@ -147,7 +146,7 @@ function displayAirports(airports) {
         
         const marker = L.circleMarker([coords[1], coords[0]], {
             radius: 6,
-            fillColor: props.is_major_hub ? '#dc3545' : '#667eea',
+            fillColor: '#667eea',
             color: '#fff',
             weight: 1,
             opacity: 1,
@@ -160,7 +159,6 @@ function displayAirports(airports) {
                 <b>${props.name}</b><br>
                 <small>${props.city}, ${props.country}</small><br>
                 <small><strong>IATA:</strong> ${props.iata_code}</small>
-                ${props.is_major_hub ? '<br><small><i class="fas fa-star"></i> Major Hub</small>' : ''}
                 <br><br>
                 <button onclick="loadRoutes('${props.iata_code}', '${props.name}')" 
                         style="padding: 5px 10px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
@@ -187,7 +185,7 @@ async function loadRoutes(iataCode, airportName) {
     state.isLoading = true;
     
     try {
-        const response = await fetch(`${CONFIG.API_BASE}/airports/routes/?origin=${iataCode}&limit=${CONFIG.MAX_ROUTES_DISPLAY}`);
+        const response = await fetch(`${CONFIG.API_BASE}/airports/routes/?origin=${iataCode}`);
         if (!response.ok) throw new Error('Failed to load routes');
         
         const data = await response.json();
@@ -235,7 +233,6 @@ async function loadRoutes(iataCode, airportName) {
         updateInfoBox(`
             <strong>${airportName}</strong><br>
             Showing ${data.features.length} route(s)
-            ${data.features.length >= CONFIG.MAX_ROUTES_DISPLAY ? ` (limited to ${CONFIG.MAX_ROUTES_DISPLAY})` : ''}
         `);
         
         // Add legend for route colors
@@ -370,15 +367,10 @@ function populateCountryFilter() {
 
 function applyFilters() {
     const country = document.getElementById('countryFilter').value;
-    const majorHubsOnly = document.getElementById('majorHubsOnly').checked;
     
     state.filteredAirports = state.allAirports.filter(feature => {
         const props = feature.properties;
-        
-        let matchesCountry = !country || props.country === country;
-        let matchesHubStatus = !majorHubsOnly || props.is_major_hub;
-        
-        return matchesCountry && matchesHubStatus;
+        return !country || props.country === country;
     });
     
     displayAirports(state.filteredAirports);
@@ -389,7 +381,6 @@ function applyFilters() {
 
 function resetFilters() {
     document.getElementById('countryFilter').value = '';
-    document.getElementById('majorHubsOnly').checked = false;
     
     state.filteredAirports = [...state.allAirports];
     displayAirports(state.filteredAirports);
