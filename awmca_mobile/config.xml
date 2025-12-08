@@ -1,0 +1,16 @@
+<widget id="com.alexs.awmca"
+        version="1.0.0"
+        xmlns="http://www.w3.org/ns/widgets"
+        xmlns:cdv="http://cordova.apache.org/ns/1.0">
+
+    <name>AWM CA2</name>
+    <description>Location-based web mapping app for CA2</description>
+
+    <content src="index.html" />
+
+    <access origin="*" />
+    <allow-navigation href="*" />
+
+    <preference name="Orientation" value="portrait" />
+    <preference name="Fullscreen" value="true" />
+</widget>
