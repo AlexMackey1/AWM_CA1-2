@@ -1,25 +1,37 @@
+<?xml version='1.0' encoding='utf-8'?>
 <widget id="com.alexs.awmca"
         version="1.0.0"
         xmlns="http://www.w3.org/ns/widgets"
         xmlns:cdv="http://cordova.apache.org/ns/1.0"
         xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- App metadata -->
     <name>AWM CA2</name>
     <description>Location-based web mapping app for CA2</description>
+    <author email="you@example.com" href="http://example.com">AWM CA2</author>
 
     <!-- Start page -->
     <content src="index.html" />
 
-    <!-- Allow network calls -->
+    <!-- Allow network access -->
     <access origin="*" />
     <allow-navigation href="*" />
+    <allow-intent href="http://*/*" />
+    <allow-intent href="https://*/*" />
 
-    <!-- Orientation / fullscreen -->
+    <!-- Basic UI prefs -->
     <preference name="Orientation" value="portrait" />
     <preference name="Fullscreen" value="true" />
 
-    <!-- Android-specific: allow cleartext HTTP traffic (since API is http://IP, not HTTPS) -->
+    <!-- Mixed content mode cordova-plugin-mixed-content-mode -->
+    <preference name="MixedContentMode" value="AlwaysAllow" />
+
     <platform name="android">
-        <preference name="android-usesCleartextTraffic" value="true" />
+        <edit-config file="app/src/main/AndroidManifest.xml"
+                     mode="merge"
+                     target="/manifest/application">
+            <application android:usesCleartextTraffic="true" />
+        </edit-config>
     </platform>
+
 </widget>

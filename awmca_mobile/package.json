@@ -13,10 +13,13 @@
   "author": "Apache Cordova Team",
   "license": "Apache-2.0",
   "devDependencies": {
-    "cordova-android": "^14.0.1"
+    "cordova-android": "^14.0.1",
+    "cordova-plugin-mixed-content-mode": "github:carlosbet/cordova-plugin-mixed-content-mode"
   },
   "cordova": {
-    "plugins": {},
+    "plugins": {
+      "cordova-plugin-mixedcontentmode": {}
+    },
     "platforms": [
       "android"
     ]
