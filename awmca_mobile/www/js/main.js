@@ -13,10 +13,13 @@ const state = {
     map: null,
     airportMarkers: null,
     routeLayer: null,
+    selectionLayer: null,
     allAirports: [],
     filteredAirports: [],
     countries: new Set(),
-    isLoading: false
+    isLoading: false,
+    interactionMode: null,
+    nearbyRadiusKm: 100
 };
 
 // ===========================
@@ -33,16 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
 // MAP INITIALIZATION
 // ===========================
 function initializeMap() {
-    // Initialize Leaflet map
     state.map = L.map('map').setView(CONFIG.DEFAULT_CENTER, CONFIG.DEFAULT_ZOOM);
     
-    // Add tile layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '© OpenStreetMap contributors'
     }).addTo(state.map);
     
-    // Initialize marker cluster group
     state.airportMarkers = L.markerClusterGroup({
         maxClusterRadius: CONFIG.CLUSTER_RADIUS,
         spiderfyOnMaxZoom: true,
@@ -70,8 +70,10 @@ function initializeMap() {
     
     state.map.addLayer(state.airportMarkers);
     
-    // Initialize route layer
     state.routeLayer = L.layerGroup().addTo(state.map);
+    state.selectionLayer = L.layerGroup().addTo(state.map);
+
+    state.map.on('click', onMapClick);
 }
 
 // ===========================
@@ -84,7 +86,6 @@ function initializeSidebar() {
     toggleBtn.addEventListener('click', () => {
         sidebar.classList.toggle('collapsed');
         
-        // Update icon
         const icon = toggleBtn.querySelector('i');
         if (sidebar.classList.contains('collapsed')) {
             icon.className = 'fas fa-chevron-right';
@@ -92,7 +93,6 @@ function initializeSidebar() {
             icon.className = 'fas fa-bars';
         }
         
-        // Invalidate map size after animation
         setTimeout(() => {
             state.map.invalidateSize();
         }, 300);
@@ -113,18 +113,12 @@ async function loadAirports() {
         state.allAirports = data.features;
         state.filteredAirports = [...state.allAirports];
         
-        // Extract unique countries
         state.allAirports.forEach(feature => {
             state.countries.add(feature.properties.country);
         });
         
-        // Populate country filter
         populateCountryFilter();
-        
-        // Display airports
         displayAirports(state.filteredAirports);
-        
-        // Update stats
         updateStats();
         
         showLoading(false);
@@ -136,10 +130,8 @@ async function loadAirports() {
 }
 
 function displayAirports(airports) {
-    // Clear existing markers
     state.airportMarkers.clearLayers();
     
-    // Add airport markers
     airports.forEach(feature => {
         const coords = feature.geometry.coordinates;
         const props = feature.properties;
@@ -153,7 +145,6 @@ function displayAirports(airports) {
             fillOpacity: 0.8
         });
         
-        // Create popup content
         const popupContent = `
             <div>
                 <b>${props.name}</b><br>
@@ -171,7 +162,6 @@ function displayAirports(airports) {
         state.airportMarkers.addLayer(marker);
     });
     
-    // Fit bounds if airports exist
     if (airports.length > 0 && state.airportMarkers.getBounds().isValid()) {
         state.map.fitBounds(state.airportMarkers.getBounds(), { padding: [50, 50] });
     }
@@ -190,7 +180,6 @@ async function loadRoutes(iataCode, airportName) {
         
         const data = await response.json();
         
-        // Clear existing routes
         state.routeLayer.clearLayers();
         
         if (data.features.length === 0) {
@@ -199,17 +188,15 @@ async function loadRoutes(iataCode, airportName) {
             return;
         }
         
-        // Add routes to map
         data.features.forEach(feature => {
             const props = feature.properties;
             const distance = props.distance_km || 0;
             
-            // Color routes by distance
-            let color = '#667eea'; // Short (< 1000 km)
+            let color = '#667eea';
             if (distance > 5000) {
-                color = '#dc3545'; // Long (> 5000 km)
+                color = '#dc3545';
             } else if (distance > 2000) {
-                color = '#fd7e14'; // Medium (2000-5000 km)
+                color = '#fd7e14';
             }
             
             const route = L.geoJSON(feature, {
@@ -229,13 +216,11 @@ async function loadRoutes(iataCode, airportName) {
             state.routeLayer.addLayer(route);
         });
         
-        // Update info box
         updateInfoBox(`
             <strong>${airportName}</strong><br>
             Showing ${data.features.length} route(s)
         `);
         
-        // Add legend for route colors
         const legend = `
             <div class="mt-2">
                 <small><strong>Distance Legend:</strong></small><br>
@@ -254,7 +239,6 @@ async function loadRoutes(iataCode, airportName) {
     }
 }
 
-// Make loadRoutes globally accessible (for popup buttons)
 window.loadRoutes = loadRoutes;
 
 // ===========================
@@ -269,7 +253,6 @@ function initializeSearch() {
     searchInput.addEventListener('input', (e) => {
         const query = e.target.value.trim();
         
-        // Clear previous timeout
         if (searchTimeout) clearTimeout(searchTimeout);
         
         if (query.length < 2) {
@@ -277,13 +260,11 @@ function initializeSearch() {
             return;
         }
         
-        // Debounce search
         searchTimeout = setTimeout(() => {
             performSearch(query);
         }, CONFIG.SEARCH_DEBOUNCE);
     });
     
-    // Close search results when clicking outside
     document.addEventListener('click', (e) => {
         if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
             searchResults.classList.remove('show');
@@ -302,7 +283,7 @@ function performSearch(query) {
             props.country.toLowerCase().includes(searchStr) ||
             props.iata_code.toLowerCase().includes(searchStr)
         );
-    }).slice(0, 10); // Limit to 10 results
+    }).slice(0, 10);
     
     displaySearchResults(results);
 }
@@ -331,14 +312,11 @@ function displaySearchResults(results) {
 }
 
 function selectAirport(iataCode, lat, lon) {
-    // Close search results
     document.getElementById('searchResults').classList.remove('show');
     document.getElementById('searchInput').value = '';
     
-    // Zoom to airport
     state.map.setView([lat, lon], 10);
     
-    // Find and open popup
     state.airportMarkers.eachLayer(layer => {
         const latlng = layer.getLatLng();
         if (Math.abs(latlng.lat - lat) < 0.01 && Math.abs(latlng.lng - lon) < 0.01) {
@@ -347,7 +325,6 @@ function selectAirport(iataCode, lat, lon) {
     });
 }
 
-// Make selectAirport globally accessible
 window.selectAirport = selectAirport;
 
 // ===========================
@@ -414,73 +391,166 @@ function initializeLayerControls() {
 }
 
 // ===========================
-// ACTION BUTTONS
+// NEARBY / NEAREST HELPERS
 // ===========================
-function clearRoutes() {
-    state.routeLayer.clearLayers();
-    updateInfoBox('Routes cleared. Click on an airport to view its routes.');
-    updateStatsBox('');
+function clearSelection() {
+    if (state.selectionLayer) {
+        state.selectionLayer.clearLayers();
+    }
 }
 
-async function findNearbyAirports() {
-    const userLat = prompt('Enter your latitude:', '53.35');
-    const userLon = prompt('Enter your longitude:', '-6.26');
-    const radius = prompt('Enter search radius (km):', '100');
+function onMapClick(e) {
+    if (!state.interactionMode) return;
     
-    if (!userLat || !userLon || !radius) return;
+    const latlng = e.latlng;
     
+    if (state.interactionMode === 'nearby') {
+        runNearbyQuery(latlng);
+    } else if (state.interactionMode === 'nearest') {
+        runNearestQuery(latlng);
+    }
+}
+
+async function runNearbyQuery(latlng) {
     try {
-        const response = await fetch(`${CONFIG.API_BASE}/airports/nearby/?lat=${userLat}&lon=${userLon}&radius=${radius}`);
+        clearSelection();
+
+        const centerMarker = L.circleMarker(latlng, {
+            radius: 6,
+            fillColor: '#ff9800',
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9
+        });
+
+        const radiusCircle = L.circle(latlng, {
+            radius: state.nearbyRadiusKm * 1000,
+            color: '#ff9800',
+            weight: 1,
+            opacity: 0.7,
+            fillOpacity: 0.05
+        });
+
+        state.selectionLayer.addLayer(radiusCircle);
+        state.selectionLayer.addLayer(centerMarker);
+
+        const lat = latlng.lat.toFixed(5);
+        const lon = latlng.lng.toFixed(5);
+
+        const response = await fetch(
+            `${CONFIG.API_BASE}/airports/nearby/?lat=${lat}&lon=${lon}&radius=${state.nearbyRadiusKm}`
+        );
         if (!response.ok) throw new Error('Failed to find nearby airports');
-        
+
         const data = await response.json();
-        
-        updateInfoBox(`Found ${data.features.length} airport(s) within ${radius} km of (${userLat}, ${userLon})`);
-        
-        // Highlight nearby airports
-        displayAirports(data.features);
-        
+
+        state.filteredAirports = data.features;
+        displayAirports(state.filteredAirports);
+        updateStats();
+
+        updateInfoBox(
+            `Found ${data.features.length} airport(s) within ${state.nearbyRadiusKm} km of the selected point (${lat}, ${lon}). Click again on the map to search a different location or press Reset to show all airports.`
+        );
     } catch (error) {
         console.error('Error finding nearby airports:', error);
         showError('Failed to find nearby airports.');
     }
 }
 
-async function findNearestAirport() {
-    const userLat = prompt('Enter your latitude:', '53.35');
-    const userLon = prompt('Enter your longitude:', '-6.26');
-    
-    if (!userLat || !userLon) return;
-    
+async function runNearestQuery(latlng) {
     try {
-        const response = await fetch(`${CONFIG.API_BASE}/airports/nearest/?lat=${userLat}&lon=${userLon}`);
+        clearSelection();
+
+        const clickMarker = L.circleMarker(latlng, {
+            radius: 6,
+            fillColor: '#17a2b8',
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9
+        });
+
+        state.selectionLayer.addLayer(clickMarker);
+
+        const lat = latlng.lat.toFixed(5);
+        const lon = latlng.lng.toFixed(5);
+
+        const response = await fetch(
+            `${CONFIG.API_BASE}/airports/nearest/?lat=${lat}&lon=${lon}`
+        );
         if (!response.ok) throw new Error('Failed to find nearest airport');
-        
+
         const data = await response.json();
-        
+
         if (data.features && data.features.length > 0) {
             const airport = data.features[0];
             const props = airport.properties;
             const coords = airport.geometry.coordinates;
-            
+
+            state.filteredAirports = [airport];
+            displayAirports(state.filteredAirports);
+            updateStats();
+
+            state.map.setView([coords[1], coords[0]], 8);
+
+            const distanceText = props.distance_km
+                ? `${props.distance_km.toFixed(1)} km`
+                : 'N/A';
+
             updateInfoBox(`
                 <strong>Nearest Airport:</strong><br>
                 ${props.name}<br>
                 ${props.city}, ${props.country}<br>
-                Distance: ${props.distance_km ? props.distance_km.toFixed(1) : 'N/A'} km
+                Distance from clicked point: ${distanceText}
             `);
-            
-            // Zoom to airport
-            state.map.setView([coords[1], coords[0]], 10);
-            
-            // Highlight the airport
-            displayAirports([airport]);
+        } else {
+            updateInfoBox('No airports found.');
         }
-        
     } catch (error) {
         console.error('Error finding nearest airport:', error);
         showError('Failed to find nearest airport.');
     }
+}
+
+// ===========================
+// ACTION BUTTONS
+// ===========================
+function clearRoutes() {
+    state.routeLayer.clearLayers();
+    clearSelection();
+    state.interactionMode = null;
+    updateInfoBox('Routes cleared. Click on an airport to view its routes.');
+    updateStatsBox('');
+}
+
+function findNearbyAirports() {
+    const defaultRadius = state.nearbyRadiusKm || 100;
+    const input = prompt('Enter search radius (km):', defaultRadius);
+    if (input === null) return;
+
+    const radius = parseFloat(input);
+    if (isNaN(radius) || radius <= 0) {
+        showError('Please enter a valid radius in kilometers.');
+        return;
+    }
+
+    state.nearbyRadiusKm = radius;
+    state.interactionMode = 'nearby';
+    clearSelection();
+
+    updateInfoBox(
+        `Nearby airports mode active. Click on the map to search for airports within ${radius} km of the selected location.`
+    );
+}
+
+function findNearestAirport() {
+    state.interactionMode = 'nearest';
+    clearSelection();
+
+    updateInfoBox(
+        'Nearest airport mode active. Click on the map to find the closest airport to that location.'
+    );
 }
 
 async function showTopHubs() {
@@ -549,17 +619,13 @@ function showError(message) {
 // EVENT LISTENERS
 // ===========================
 function attachEventListeners() {
-    // Search
     initializeSearch();
     
-    // Filters
     document.getElementById('applyFilters').addEventListener('click', applyFilters);
     document.getElementById('resetFilters').addEventListener('click', resetFilters);
     
-    // Layer controls
     initializeLayerControls();
     
-    // Action buttons
     document.getElementById('clearBtn').addEventListener('click', clearRoutes);
     document.getElementById('btnNearby').addEventListener('click', findNearbyAirports);
     document.getElementById('btnNearest').addEventListener('click', findNearestAirport);

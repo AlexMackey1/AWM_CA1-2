@@ -11,13 +11,13 @@ from .models import Airport, FlightRoute
 from .serializers import AirportSerializer, FlightRouteSerializer, AirportCreateSerializer
 
 
-#  FRONTEND MAP VIEW
+# FRONTEND MAP VIEW
 def index(request):
     """Serves the Leaflet front-end map page."""
     return render(request, "maps/index.html")
 
 
-#  AIRPORT VIEWSET
+# AIRPORT VIEWSET
 class AirportViewSet(viewsets.ModelViewSet):
     """
     Handles CRUD operations and spatial queries for Airport data.
@@ -68,7 +68,6 @@ class AirportViewSet(viewsets.ModelViewSet):
         data = FlightRouteSerializer(routes, many=True).data
         return Response({"type": "FeatureCollection", "features": data})
 
-
     @action(detail=False, methods=["get"])
     def nearby(self, request):
         """
@@ -112,11 +111,9 @@ class AirportViewSet(viewsets.ModelViewSet):
         pt = Point(lon, lat, srid=4326)
         qs = Airport.objects.annotate(distance=GDistance("geom", pt)).order_by("distance")[:1]
 
-        # ✅ ADDED: Include distance in response
         if qs.exists():
             airport = qs.first()
             data = AirportSerializer([airport], many=True).data
-            # Add distance to properties
             if data and len(data) > 0:
                 data[0]["properties"]["distance_km"] = round(airport.distance.km, 2)
         else:
@@ -139,7 +136,7 @@ class AirportViewSet(viewsets.ModelViewSet):
         return Response(list(rows))
 
 
-#  FLIGHT ROUTE VIEWSET
+# FLIGHT ROUTE VIEWSET
 class FlightRouteViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Read-only access to FlightRoute data with spatial query support.
