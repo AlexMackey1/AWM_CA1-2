@@ -1,16 +1,25 @@
 <widget id="com.alexs.awmca"
         version="1.0.0"
         xmlns="http://www.w3.org/ns/widgets"
-        xmlns:cdv="http://cordova.apache.org/ns/1.0">
+        xmlns:cdv="http://cordova.apache.org/ns/1.0"
+        xmlns:android="http://schemas.android.com/apk/res/android">
 
     <name>AWM CA2</name>
     <description>Location-based web mapping app for CA2</description>
 
+    <!-- Start page -->
     <content src="index.html" />
 
+    <!-- Allow network calls -->
     <access origin="*" />
     <allow-navigation href="*" />
 
+    <!-- Orientation / fullscreen -->
     <preference name="Orientation" value="portrait" />
     <preference name="Fullscreen" value="true" />
+
+    <!-- Android-specific: allow cleartext HTTP traffic (since API is http://IP, not HTTPS) -->
+    <platform name="android">
+        <preference name="android-usesCleartextTraffic" value="true" />
+    </platform>
 </widget>
